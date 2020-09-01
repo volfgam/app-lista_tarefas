@@ -15,24 +15,52 @@ class _HomeState extends State<Home> {
   final _toDoController = TextEditingController();
 
   List _toDoList = [];
+  Map<String, dynamic> _lastRemoved;
+  int _lastRemovedPos;
 
   @override
   void initState() {
     super.initState();
-    setState(() {
-      _readData().then((data) => _toDoList = json.decode(data));
+    _readData().then((data) {
+      setState(() {
+        _toDoList = json.decode(data);
+      });
     });
   }
 
   void addToDo() {
     setState(() {
       Map<String, dynamic> newToDo = Map();
+
+      if (_toDoController.text == "" || _toDoController.text == null) {
+        return;
+      }
+
       newToDo["title"] = _toDoController.text;
       _toDoController.text = "";
       newToDo["ok"] = false;
       _toDoList.add(newToDo);
       _saveData();
+      FocusScope.of(context).unfocus();
+      _refresh();
     });
+  }
+
+  Future<Null> _refresh() async {
+    setState(() {
+      _toDoList.sort((a, b) {
+        if (a["ok"] && !b["ok"])
+          return 1;
+        else if (a["ok"] && b["ok"])
+          return -1;
+        else
+          return 0;
+      });
+
+      _saveData();
+    });
+
+    return null;
   }
 
   @override
@@ -67,10 +95,13 @@ class _HomeState extends State<Home> {
             ),
           ),
           Expanded(
-              child: ListView.builder(
-                  padding: EdgeInsets.only(top: 10.0),
-                  itemCount: _toDoList.length,
-                  itemBuilder: buildItem))
+              child: RefreshIndicator(
+            child: ListView.builder(
+                padding: EdgeInsets.only(top: 10.0),
+                itemCount: _toDoList.length,
+                itemBuilder: buildItem),
+            onRefresh: _refresh,
+          ))
         ],
       ),
     );
@@ -89,7 +120,7 @@ class _HomeState extends State<Home> {
         ),
       ),
       direction: DismissDirection.startToEnd,
-      key: Key(index.toString()),
+      key: Key(DateTime.now().millisecondsSinceEpoch.toString()),
       child: CheckboxListTile(
         title: Text(_toDoList[index]["title"]),
         value: _toDoList[index]["ok"],
@@ -100,9 +131,35 @@ class _HomeState extends State<Home> {
           setState(() {
             _toDoList[index]["ok"] = c;
             _saveData();
+            _refresh();
           });
         },
       ),
+      onDismissed: (direction) {
+        setState(() {
+          _lastRemoved = Map.from(_toDoList[index]);
+          _lastRemovedPos = index;
+          _toDoList.removeAt(index);
+
+          _saveData();
+
+          final snack = SnackBar(
+            content: Text("Tarefa \"${_lastRemoved["title"]}\" removida!"),
+            action: SnackBarAction(
+                label: "Desfazer",
+                onPressed: () {
+                  setState(() {
+                    _toDoList.insert(_lastRemovedPos, _lastRemoved);
+                    _saveData();
+                  });
+                }),
+            duration: Duration(seconds: 2),
+          );
+
+          Scaffold.of(context).removeCurrentSnackBar();
+          Scaffold.of(context).showSnackBar(snack);
+        });
+      },
     );
   }
 
